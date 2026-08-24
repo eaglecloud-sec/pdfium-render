@@ -8,7 +8,7 @@ use crate::pdf::font::{PdfFontCharacterSet, PdfFontWeight};
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int, c_uchar, c_uint, c_ulong, c_void};
-use std::panic;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::str::FromStr;
 
 /// A single custom font lookup request from Pdfium.
@@ -164,6 +164,10 @@ unsafe fn fpdf_sys_font_info_to_custom_font_provider<'a>(
 // The `FPDF_SYSFONTINFO::Release` callback function invoked by Pdfium.
 #[allow(non_snake_case)]
 unsafe extern "C" fn fpdf_sys_font_info_release(pThis: *mut FPDF_SYSFONTINFO) {
+    if pThis.is_null() {
+        return;
+    }
+
     fpdf_sys_font_info_to_custom_font_provider(pThis)
         .cache
         .clear();
@@ -186,7 +190,7 @@ unsafe extern "C" fn fpdf_sys_font_info_map_font(
 
     let provider = fpdf_sys_font_info_to_custom_font_provider(pThis);
 
-    let result = provider.provider.provide(PdfiumCustomFontProviderRequest {
+    let request = PdfiumCustomFontProviderRequest {
         font_face: match CStr::from_ptr(face).to_str() {
             Ok(font_face) => font_face.to_owned(),
             Err(_) => return std::ptr::null_mut(),
@@ -200,20 +204,28 @@ unsafe extern "C" fn fpdf_sys_font_info_map_font(
             None => return std::ptr::null_mut(),
         },
         is_italic: bItalic != 0,
-        is_fixed_pitch: pitch_family & (FXFONT_FF_FIXEDPITCH as i32) == 1,
-        is_serif: pitch_family & (FXFONT_FF_ROMAN as i32) == 1,
-        is_cursive: pitch_family & (FXFONT_FF_SCRIPT as i32) == 1,
-    });
+        is_fixed_pitch: pitch_family & (FXFONT_FF_FIXEDPITCH as i32) != 0,
+        is_serif: pitch_family & (FXFONT_FF_ROMAN as i32) != 0,
+        is_cursive: pitch_family & (FXFONT_FF_SCRIPT as i32) != 0,
+    };
+
+    // This function is called by Pdfium through a C ABI callback. A panic in a
+    // user provider must never unwind across that boundary; treat it exactly
+    // like a lookup miss instead.
+    let result = match catch_unwind(AssertUnwindSafe(|| provider.provider.provide(request))) {
+        Ok(result) => result,
+        Err(_) => return std::ptr::null_mut(),
+    };
 
     match result {
-        Some(response) => {
+        Some(response) if response.id != 0 => {
             let id = response.id;
 
             provider.cache.insert(id, response);
 
             id as *mut c_void
         }
-        None => std::ptr::null_mut(),
+        Some(_) | None => std::ptr::null_mut(),
     }
 }
 
@@ -264,6 +276,10 @@ unsafe extern "C" fn fpdf_sys_font_info_get_face_name(
     buffer: *mut c_char,
     buf_size: c_ulong,
 ) -> c_ulong {
+    if pThis.is_null() || hFont.is_null() {
+        return 0;
+    }
+
     if let Some(response) = fpdf_sys_font_info_to_custom_font_provider(pThis)
         .cache
         .get(&(hFont as PdfiumCustomFontHandle))
@@ -277,23 +293,10 @@ unsafe extern "C" fn fpdf_sys_font_info_get_face_name(
 
             chars.len() as c_ulong
         } else {
-            // Undefined behaviour: font face name cannot be converted into a C string.
-            // There is no mechanism for reporting the failure back to Pdfium, so we must abort.
-
-            panic!(
-                "Unable to convert face name to C string in fpdf_sys_font_info_get_face_name: {:?}",
-                &response.font_face
-            );
+            0
         }
     } else {
-        // Undefined behaviour: Pdfium called us with an opaque font handle that doesn't
-        // correspond to any cached response. This should never happen, there is no mechanism
-        // for reporting the failure back to Pdfium, and so we must abort.
-
-        panic!(
-            "Unknown font handle received from Pdfium in fpdf_sys_font_info_get_face_name: {:?}",
-            hFont
-        );
+        0
     }
 }
 
@@ -303,20 +306,17 @@ unsafe extern "C" fn fpdf_sys_font_info_get_font_charset(
     pThis: *mut FPDF_SYSFONTINFO,
     hFont: *mut c_void,
 ) -> c_int {
+    if pThis.is_null() || hFont.is_null() {
+        return 0;
+    }
+
     if let Some(response) = fpdf_sys_font_info_to_custom_font_provider(pThis)
         .cache
         .get(&(hFont as PdfiumCustomFontHandle))
     {
         response.character_set.as_pdfium()
     } else {
-        // Undefined behaviour: Pdfium called us with an opaque font handle that doesn't
-        // correspond to any cached response. This should never happen, there is no mechanism
-        // for reporting the failure back to Pdfium, and so we must abort.
-
-        panic!(
-            "Unknown font handle received from Pdfium in fpdf_sys_font_info_get_font_charset: {:?}",
-            hFont
-        );
+        0
     }
 }
 
@@ -326,6 +326,10 @@ unsafe extern "C" fn fpdf_sys_font_info_delete_font(
     pThis: *mut FPDF_SYSFONTINFO,
     hFont: *mut c_void,
 ) {
+    if pThis.is_null() || hFont.is_null() {
+        return;
+    }
+
     fpdf_sys_font_info_to_custom_font_provider(pThis)
         .cache
         .remove(&(hFont as PdfiumCustomFontHandle));
