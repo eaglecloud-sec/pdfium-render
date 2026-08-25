@@ -10,6 +10,7 @@ use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int, c_uchar, c_uint, c_ulong, c_void};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::str::FromStr;
+use std::sync::Arc;
 
 /// A single custom font lookup request from Pdfium.
 pub struct PdfiumCustomFontProviderRequest {
@@ -71,6 +72,47 @@ unsafe impl Sync for PdfiumCustomFontProviderResponse {}
 #[cfg(feature = "thread_safe")]
 unsafe impl Send for PdfiumCustomFontProviderResponse {}
 
+/// The response to a custom font lookup request when the raw font data can be
+/// shared by several Pdfium font handles.
+///
+/// Providers that repeatedly return the same large fallback font should use
+/// this response type through
+/// [`PdfiumCustomFontProvider::provide_shared()`]. Pdfium retains one cheap
+/// [`Arc`] clone per active handle instead of retaining a full byte-for-byte
+/// copy for every lookup.
+pub struct PdfiumCustomFontProviderSharedResponse {
+    /// A unique ID for the custom font provided in this response. Pdfium will
+    /// use this value as a font handle in all subsequent calls related to this
+    /// font.
+    pub id: PdfiumCustomFontHandle,
+
+    /// The font face of the custom font provided in this response.
+    pub font_face: String,
+
+    /// The character set of the custom font provided in this response.
+    pub character_set: PdfFontCharacterSet,
+
+    /// Shared raw OpenType or TrueType font data.
+    pub data: Arc<Vec<u8>>,
+}
+
+impl From<PdfiumCustomFontProviderResponse> for PdfiumCustomFontProviderSharedResponse {
+    fn from(response: PdfiumCustomFontProviderResponse) -> Self {
+        Self {
+            id: response.id,
+            font_face: response.font_face,
+            character_set: response.character_set,
+            data: Arc::new(response.data),
+        }
+    }
+}
+
+#[cfg(feature = "thread_safe")]
+unsafe impl Sync for PdfiumCustomFontProviderSharedResponse {}
+
+#[cfg(feature = "thread_safe")]
+unsafe impl Send for PdfiumCustomFontProviderSharedResponse {}
+
 /// At trait that responds to a single custom font lookup request from Pdfium.
 pub trait PdfiumCustomFontProvider: Send + Sync {
     /// Responds to a single custom font lookup request from Pdfium, returning either a valid
@@ -79,7 +121,24 @@ pub trait PdfiumCustomFontProvider: Send + Sync {
     fn provide(
         &mut self,
         request: PdfiumCustomFontProviderRequest,
-    ) -> Option<PdfiumCustomFontProviderResponse>;
+    ) -> Option<PdfiumCustomFontProviderResponse> {
+        let _ = request;
+
+        None
+    }
+
+    /// Responds to a custom font lookup with shareable font bytes.
+    ///
+    /// Existing providers only need to implement [`Self::provide()`]; this
+    /// default adapter moves their owned byte vector into an [`Arc`] without
+    /// requiring a duplicate allocation. Providers that cache large fallback
+    /// fonts can override this method and clone an existing [`Arc`] instead.
+    fn provide_shared(
+        &mut self,
+        request: PdfiumCustomFontProviderRequest,
+    ) -> Option<PdfiumCustomFontProviderSharedResponse> {
+        self.provide(request).map(Into::into)
+    }
 }
 
 #[repr(C)]
@@ -126,7 +185,7 @@ pub(crate) struct PdfiumCustomFontProviderExt {
         Option<unsafe extern "C" fn(pThis: *mut FPDF_SYSFONTINFO, hFont: *mut c_void) -> c_int>,
     DeleteFont: Option<unsafe extern "C" fn(pThis: *mut FPDF_SYSFONTINFO, hFont: *mut c_void)>,
     provider: Box<dyn PdfiumCustomFontProvider>,
-    cache: HashMap<PdfiumCustomFontHandle, PdfiumCustomFontProviderResponse>,
+    cache: HashMap<PdfiumCustomFontHandle, PdfiumCustomFontProviderSharedResponse>,
 }
 
 impl PdfiumCustomFontProviderExt {
@@ -212,7 +271,9 @@ unsafe extern "C" fn fpdf_sys_font_info_map_font(
     // This function is called by Pdfium through a C ABI callback. A panic in a
     // user provider must never unwind across that boundary; treat it exactly
     // like a lookup miss instead.
-    let result = match catch_unwind(AssertUnwindSafe(|| provider.provider.provide(request))) {
+    let result = match catch_unwind(AssertUnwindSafe(|| {
+        provider.provider.provide_shared(request)
+    })) {
         Ok(result) => result,
         Err(_) => return std::ptr::null_mut(),
     };
@@ -226,6 +287,85 @@ unsafe extern "C" fn fpdf_sys_font_info_map_font(
             id as *mut c_void
         }
         Some(_) | None => std::ptr::null_mut(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct LegacyProvider;
+
+    impl PdfiumCustomFontProvider for LegacyProvider {
+        fn provide(
+            &mut self,
+            request: PdfiumCustomFontProviderRequest,
+        ) -> Option<PdfiumCustomFontProviderResponse> {
+            Some(PdfiumCustomFontProviderResponse {
+                id: 1,
+                font_face: request.font_face,
+                character_set: request.character_set,
+                data: vec![1, 2, 3],
+            })
+        }
+    }
+
+    struct SharedProvider {
+        next_id: PdfiumCustomFontHandle,
+        data: Arc<Vec<u8>>,
+    }
+
+    impl PdfiumCustomFontProvider for SharedProvider {
+        fn provide_shared(
+            &mut self,
+            request: PdfiumCustomFontProviderRequest,
+        ) -> Option<PdfiumCustomFontProviderSharedResponse> {
+            self.next_id += 1;
+
+            Some(PdfiumCustomFontProviderSharedResponse {
+                id: self.next_id,
+                font_face: request.font_face,
+                character_set: request.character_set,
+                data: Arc::clone(&self.data),
+            })
+        }
+    }
+
+    fn request(face: &str) -> PdfiumCustomFontProviderRequest {
+        PdfiumCustomFontProviderRequest {
+            font_face: face.to_owned(),
+            character_set: PdfFontCharacterSet::Ansi,
+            weight: PdfFontWeight::Weight400Normal,
+            is_italic: false,
+            is_fixed_pitch: false,
+            is_serif: false,
+            is_cursive: false,
+        }
+    }
+
+    #[test]
+    fn owned_provider_response_adapts_to_shared_data() {
+        let mut provider = LegacyProvider;
+        let response = provider.provide_shared(request("Legacy")).unwrap();
+
+        assert_eq!(response.data.as_slice(), &[1, 2, 3]);
+        assert_eq!(Arc::strong_count(&response.data), 1);
+    }
+
+    #[test]
+    fn shared_provider_reuses_one_font_allocation() {
+        let data = Arc::new(vec![7; 1024]);
+        let mut provider = SharedProvider {
+            next_id: 0,
+            data: Arc::clone(&data),
+        };
+
+        let first = provider.provide_shared(request("MissingOne")).unwrap();
+        let second = provider.provide_shared(request("MissingTwo")).unwrap();
+
+        assert_ne!(first.id, second.id);
+        assert!(Arc::ptr_eq(&first.data, &second.data));
+        assert_eq!(Arc::strong_count(&data), 4);
     }
 }
 
