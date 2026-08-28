@@ -12,20 +12,23 @@ The build is pinned to:
 `FPDFCatalog_GetCustomStream()` API. It accepts unfiltered data or a single
 `FlateDecode` filter without `DecodeParms`; other filter chains are rejected.
 Both compressed input and decoded output are bounded by the caller's
-`max_size`.
+`max_size`, with a hard upper limit of 1 MiB.
 
 ## Build and release
 
-The `Build Eagle PDFium` workflow uses the same self-hosted runner classes as
-`scanlib-client`:
+Native artifacts are built from the private `scanlib-client` repository so
+untrusted code from this public repository never executes on shared
+self-hosted runners. Its `Build Eagle PDFium` workflow uses these runner
+classes:
 
 - Linux: `self-hosted`, `Linux`, `ubuntu22.04`
 - macOS: `self-hosted`, `macOS`, `ARM64`
 - Windows: `self-hosted`, `Windows`, `X64`
 
-Pull requests build and test all configured targets. Pushing a tag named
-`pdfium-eagle-*` additionally publishes the generated `.tgz` archives and
-SHA-256 files to this repository's GitHub Release.
+The private workflow checks out an explicitly pinned `pdfium-render` commit,
+builds and tests all configured targets, then creates a `pdfium-eagle-*` tag
+and publishes the generated `.tgz` archives and SHA-256 files to this
+repository's GitHub Release.
 
 The Linux x64 runner also cross-compiles the Linux arm64 artifact, matching the
 server release matrix without introducing a second Linux runner class.

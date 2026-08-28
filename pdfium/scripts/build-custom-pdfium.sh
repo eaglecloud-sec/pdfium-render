@@ -45,7 +45,23 @@ export GITHUB_PATH="$EAGLE_PATH_FILE"
 steps/00-environment.sh
 # shellcheck disable=SC1090
 source "$EAGLE_ENV_FILE"
-steps/01-install.sh
+if [[ "$TARGET_OS" == "mac" ]]; then
+  DEPOT_TOOLS_DIR="$BUILDER_ROOT/depot_tools"
+  if [[ ! -d "$DEPOT_TOOLS_DIR" ]]; then
+    git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git \
+      "$DEPOT_TOOLS_DIR"
+  fi
+  echo "$DEPOT_TOOLS_DIR" >>"$EAGLE_PATH_FILE"
+
+  XCODE_DEVELOPER_DIR="$(xcode-select -p)"
+  if [[ ! -d "$XCODE_DEVELOPER_DIR" ]]; then
+    echo "xcode-select returned a missing developer directory: $XCODE_DEVELOPER_DIR" >&2
+    exit 1
+  fi
+  xcodebuild -version
+else
+  steps/01-install.sh
+fi
 PATH="$(tr '\n' ':' <"$EAGLE_PATH_FILE")$PATH"
 export PATH
 
