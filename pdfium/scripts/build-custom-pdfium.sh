@@ -108,11 +108,11 @@ fi
 gclient sync "${GCLIENT_SYNC_ARGS[@]}"
 
 if [[ "$TARGET_OS" == "win" ]]; then
-  PDFIUM_DEPOT_TOOLS_DIR="$PDFIUM_SOURCE_DIR/third_party/depot_tools"
+  PDFIUM_DEPOT_TOOLS_DIR="$PDFium_SOURCE_DIR/third_party/depot_tools"
   git -C "$PDFIUM_DEPOT_TOOLS_DIR" apply --check \
     "$DEPOT_TOOLS_WINDOWS_PATCH"
   git -C "$PDFIUM_DEPOT_TOOLS_DIR" apply "$DEPOT_TOOLS_WINDOWS_PATCH"
-  pushd "$PDFIUM_SOURCE_DIR" >/dev/null
+  pushd "$PDFium_SOURCE_DIR" >/dev/null
   gclient runhooks
   popd >/dev/null
 fi
