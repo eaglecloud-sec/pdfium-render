@@ -75,17 +75,22 @@ steps/10-pack.sh
 
 case "$TARGET_OS" in
   linux)
-    nm -D staging/lib/libpdfium.so | grep -q 'FPDFCatalog_GetCustomStream'
+    nm -D staging/lib/libpdfium.so | grep -F 'FPDFCatalog_GetCustomStream' >/dev/null
     ;;
   mac)
-    nm -gU staging/lib/libpdfium.dylib | grep -q 'FPDFCatalog_GetCustomStream'
+    nm -gU staging/lib/libpdfium.dylib | grep -F 'FPDFCatalog_GetCustomStream' >/dev/null
     ;;
   win)
     LLVM_READOBJ="$PDFium_SOURCE_DIR/third_party/llvm-build/Release+Asserts/bin/llvm-readobj.exe"
     "$LLVM_READOBJ" --coff-exports staging/bin/pdfium.dll | \
-      grep -q 'FPDFCatalog_GetCustomStream'
+      grep -F 'FPDFCatalog_GetCustomStream' >/dev/null
     ;;
 esac
 
-shasum -a 256 "pdfium-$TARGET_OS-$TARGET_CPU.tgz" > \
-  "pdfium-$TARGET_OS-$TARGET_CPU.tgz.sha256"
+if command -v shasum >/dev/null 2>&1; then
+  shasum -a 256 "pdfium-$TARGET_OS-$TARGET_CPU.tgz" > \
+    "pdfium-$TARGET_OS-$TARGET_CPU.tgz.sha256"
+else
+  sha256sum "pdfium-$TARGET_OS-$TARGET_CPU.tgz" > \
+    "pdfium-$TARGET_OS-$TARGET_CPU.tgz.sha256"
+fi
