@@ -2,9 +2,14 @@ name: Build Eagle PDFium
 
 on:
   workflow_dispatch:
-  pull_request:
+  # This repository is public. Keep native self-hosted builds on trusted
+  # upstream pushes only; pull_request would execute untrusted fork code.
+  push:
     branches:
       - scanlib-safe-font-provider
+      - feat/eagle-catalog-stream
+    tags:
+      - "pdfium-eagle-*"
     paths:
       - ".github/workflows/pdfium-release.yml"
       - "pdfium/**"
@@ -14,16 +19,13 @@ on:
       - "src/bindings/dynamic_bindings.rs"
       - "src/bindings/static_bindings.rs"
       - "src/pdf/document/catalog.rs"
-  push:
-    tags:
-      - "pdfium-eagle-*"
 
 permissions:
   contents: read
 
 concurrency:
-  group: pdfium-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: pdfium-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
 
 jobs:
   linux:
