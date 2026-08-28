@@ -4109,6 +4109,7 @@ pub const FPDF_CATALOG_CUSTOM_STREAM_TOO_LARGE: ::std::os::raw::c_int = 3;
 pub const FPDF_CATALOG_CUSTOM_STREAM_UNSUPPORTED_FILTER: ::std::os::raw::c_int = 4;
 pub const FPDF_CATALOG_CUSTOM_STREAM_DECODE_ERROR: ::std::os::raw::c_int = 5;
 pub const FPDF_CATALOG_CUSTOM_STREAM_INVALID_ARGUMENT: ::std::os::raw::c_int = 6;
+pub const FPDF_CATALOG_CUSTOM_STREAM_MAX_SIZE: ::std::os::raw::c_ulong = 1048576;
 unsafe extern "C" {
     #[doc = " Experimental API.\n\n Determine if |document| represents a tagged PDF.\n\n For the definition of tagged PDF, See (see 10.7 \"Tagged PDF\" in PDF\n Reference 1.7).\n\n   document - handle to a document.\n\n Returns |true| iff |document| is a tagged PDF."]
     pub fn FPDFCatalog_IsTagged(document: FPDF_DOCUMENT) -> FPDF_BOOL;

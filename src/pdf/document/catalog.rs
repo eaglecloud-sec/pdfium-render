@@ -19,6 +19,20 @@ use std::ffi::CString;
 #[cfg(feature = "pdfium_eagle_catalog")]
 use std::os::raw::c_ulong;
 
+/// Maximum decoded size accepted by the Eagle PDFium custom catalog stream API.
+#[cfg(feature = "pdfium_eagle_catalog")]
+pub const PDF_CATALOG_CUSTOM_STREAM_MAX_SIZE: usize =
+    crate::bindgen::FPDF_CATALOG_CUSTOM_STREAM_MAX_SIZE as usize;
+
+#[cfg(feature = "pdfium_eagle_catalog")]
+fn custom_stream_buffer_size(max_size: usize) -> Option<c_ulong> {
+    if max_size == 0 || max_size > PDF_CATALOG_CUSTOM_STREAM_MAX_SIZE {
+        return None;
+    }
+
+    c_ulong::try_from(max_size).ok()
+}
+
 #[cfg(any(
     feature = "pdfium_future",
     feature = "pdfium_7881",
@@ -93,12 +107,9 @@ impl<'a> PdfCatalog<'a> {
         let Ok(key) = CString::new(key) else {
             return PdfCatalogCustomStreamResult::InvalidArgument;
         };
-        let Ok(buffer_size) = c_ulong::try_from(max_size) else {
+        let Some(buffer_size) = custom_stream_buffer_size(max_size) else {
             return PdfCatalogCustomStreamResult::InvalidArgument;
         };
-        if buffer_size == 0 {
-            return PdfCatalogCustomStreamResult::InvalidArgument;
-        }
 
         let mut buffer = Vec::new();
         if buffer.try_reserve_exact(max_size).is_err() {
@@ -219,3 +230,20 @@ unsafe impl<'a> Send for PdfCatalog<'a> {}
 
 #[cfg(feature = "thread_safe")]
 unsafe impl<'a> Sync for PdfCatalog<'a> {}
+
+#[cfg(all(test, feature = "pdfium_eagle_catalog"))]
+mod tests {
+    use super::{custom_stream_buffer_size, PDF_CATALOG_CUSTOM_STREAM_MAX_SIZE};
+
+    #[test]
+    fn custom_stream_size_is_validated_before_allocation() {
+        assert_eq!(custom_stream_buffer_size(0), None);
+        assert!(custom_stream_buffer_size(1).is_some());
+        assert!(custom_stream_buffer_size(PDF_CATALOG_CUSTOM_STREAM_MAX_SIZE).is_some());
+        assert_eq!(
+            custom_stream_buffer_size(PDF_CATALOG_CUSTOM_STREAM_MAX_SIZE + 1),
+            None
+        );
+        assert_eq!(custom_stream_buffer_size(usize::MAX), None);
+    }
+}

@@ -44,9 +44,12 @@ FPDFCatalog_SetLanguage(FPDF_DOCUMENT document, FPDF_BYTESTRING language);
 #define FPDF_CATALOG_CUSTOM_STREAM_UNSUPPORTED_FILTER 4
 #define FPDF_CATALOG_CUSTOM_STREAM_DECODE_ERROR 5
 #define FPDF_CATALOG_CUSTOM_STREAM_INVALID_ARGUMENT 6
+#define FPDF_CATALOG_CUSTOM_STREAM_MAX_SIZE 1048576UL
 
 // Retrieves a custom stream from the document catalog with a decoded-size
-// limit. See the Eagle PDFium 7543 release for supported filters.
+// limit. `max_size` must not exceed
+// FPDF_CATALOG_CUSTOM_STREAM_MAX_SIZE. See the Eagle PDFium 7543 release for
+// supported filters.
 FPDF_EXPORT int FPDF_CALLCONV FPDFCatalog_GetCustomStream(
     FPDF_DOCUMENT document,
     FPDF_BYTESTRING key,

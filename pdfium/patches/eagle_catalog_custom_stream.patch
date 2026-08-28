@@ -27,7 +27,7 @@ index 3bb25f7..0402d69 100644
 +
 +  const int inflate_result = inflate(context.get(), Z_FINISH);
 +  const uint32_t decoded_size =
-+      FlateGetPossiblyTruncatedTotalOut(context.get());
++      pdfium::checked_cast<uint32_t>(context->total_out);
 +  if (decoded_size > max_output_size || context->avail_out == 0) {
 +    result.data.clear();
 +    result.output_too_large = true;
@@ -117,12 +117,11 @@ diff --git a/fpdfsdk/fpdf_catalog.cpp b/fpdfsdk/fpdf_catalog.cpp
 index abe7150..727e8e6 100644
 --- a/fpdfsdk/fpdf_catalog.cpp
 +++ b/fpdfsdk/fpdf_catalog.cpp
-@@ -4,9 +4,15 @@
+@@ -4,9 +4,14 @@
  
  #include "public/fpdf_catalog.h"
  
 +#include <cstring>
-+#include <limits>
 +
  #include "core/fpdfapi/parser/cpdf_dictionary.h"
  #include "core/fpdfapi/parser/cpdf_document.h"
@@ -133,7 +132,7 @@ index abe7150..727e8e6 100644
  #include "core/fxcrt/retain_ptr.h"
  #include "fpdfsdk/cpdfsdk_helpers.h"
  
-@@ -45,3 +51,80 @@ FPDFCatalog_SetLanguage(FPDF_DOCUMENT document, FPDF_BYTESTRING language) {
+@@ -45,3 +50,79 @@ FPDFCatalog_SetLanguage(FPDF_DOCUMENT document, FPDF_BYTESTRING language) {
    catalog->SetNewFor<CPDF_String>("Lang", language);
    return true;
  }
@@ -149,8 +148,7 @@ index abe7150..727e8e6 100644
 +    *out_len = 0;
 +  }
 +  if (!document || !key || !key[0] || !buffer || !out_len || max_size == 0 ||
-+      buflen < max_size ||
-+      max_size >= std::numeric_limits<uint32_t>::max()) {
++      max_size > FPDF_CATALOG_CUSTOM_STREAM_MAX_SIZE || buflen < max_size) {
 +    return FPDF_CATALOG_CUSTOM_STREAM_INVALID_ARGUMENT;
 +  }
 +
@@ -235,7 +233,7 @@ index aea0179..650b2ed 100644
  #include "core/fpdfapi/parser/cpdf_string.h"
  #include "core/fpdfapi/parser/cpdf_test_document.h"
  #include "fpdfsdk/cpdfsdk_helpers.h"
-@@ -67,3 +70,41 @@ TEST_F(PDFCatalogTest, IsTagged) {
+@@ -67,3 +70,47 @@ TEST_F(PDFCatalogTest, IsTagged) {
    markInfoDict->SetNewFor<CPDF_Number>("Marked", 1);
    EXPECT_TRUE(FPDFCatalog_IsTagged(doc_.get()));
  }
@@ -250,6 +248,12 @@ index aea0179..650b2ed 100644
 +            FPDFCatalog_GetCustomStream(nullptr, kKey, buffer.size(),
 +                                        buffer.data(), buffer.size(),
 +                                        &out_len));
++  EXPECT_EQ(0u, out_len);
++  EXPECT_EQ(
++      FPDF_CATALOG_CUSTOM_STREAM_INVALID_ARGUMENT,
++      FPDFCatalog_GetCustomStream(
++          doc_.get(), kKey, FPDF_CATALOG_CUSTOM_STREAM_MAX_SIZE + 1,
++          buffer.data(), FPDF_CATALOG_CUSTOM_STREAM_MAX_SIZE + 1, &out_len));
 +  EXPECT_EQ(0u, out_len);
 +
 +  CPDF_TestDocument* test_doc =
@@ -281,7 +285,7 @@ diff --git a/public/fpdf_catalog.h b/public/fpdf_catalog.h
 index 033cca5..7a6bf2b 100644
 --- a/public/fpdf_catalog.h
 +++ b/public/fpdf_catalog.h
-@@ -35,6 +35,38 @@ FPDFCatalog_IsTagged(FPDF_DOCUMENT document);
+@@ -35,6 +35,40 @@ FPDFCatalog_IsTagged(FPDF_DOCUMENT document);
  FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
  FPDFCatalog_SetLanguage(FPDF_DOCUMENT document, FPDF_BYTESTRING language);
  
@@ -294,6 +298,7 @@ index 033cca5..7a6bf2b 100644
 +#define FPDF_CATALOG_CUSTOM_STREAM_UNSUPPORTED_FILTER 4
 +#define FPDF_CATALOG_CUSTOM_STREAM_DECODE_ERROR 5
 +#define FPDF_CATALOG_CUSTOM_STREAM_INVALID_ARGUMENT 6
++#define FPDF_CATALOG_CUSTOM_STREAM_MAX_SIZE 1048576UL
 +
 +// Retrieves a custom stream from the document catalog.
 +//
@@ -303,7 +308,8 @@ index 033cca5..7a6bf2b 100644
 +//
 +//   document - handle to a document.
 +//   key      - null-terminated catalog key.
-+//   max_size - maximum permitted decoded stream size.
++//   max_size - maximum permitted decoded stream size, up to
++//              FPDF_CATALOG_CUSTOM_STREAM_MAX_SIZE bytes.
 +//   buffer   - caller-owned output buffer of at least |max_size| bytes.
 +//   buflen   - size of |buffer| in bytes.
 +//   out_len  - receives the decoded stream size on success, otherwise zero.
