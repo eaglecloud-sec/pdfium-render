@@ -39,6 +39,8 @@ export DEPOT_TOOLS_UPDATE=0
 
 if [[ "$TARGET_OS" == "win" ]]; then
   export VPYTHON_BYPASS="manually managed python not supported by chrome operations"
+  export PYTHONUTF8=1
+  export PYTHONIOENCODING=utf-8
 fi
 
 EAGLE_ENV_FILE="$BUILDER_ROOT/.eagle-env-$TARGET_OS-$TARGET_CPU"
@@ -93,7 +95,13 @@ PDFIUM_URL="https://pdfium.googlesource.com/pdfium.git"
 CONFIG_ARGS=(--custom-var "checkout_configuration=minimal")
 gclient config --unmanaged "$PDFIUM_URL" "${CONFIG_ARGS[@]}"
 echo "target_os = [ '$TARGET_OS' ]" >>.gclient
-gclient sync -r "$PDFIUM_REVISION" --no-history --shallow
+GCLIENT_SYNC_ARGS=(-r "$PDFIUM_REVISION" --no-history --shallow)
+if [[ "$TARGET_OS" == "win" ]]; then
+  # Multiple first-use gsutil processes race while unpacking the same ZIP on
+  # Windows self-hosted runners. Serial sync avoids the shared-file lock.
+  GCLIENT_SYNC_ARGS+=(--jobs 1)
+fi
+gclient sync "${GCLIENT_SYNC_ARGS[@]}"
 
 steps/03-patch.sh
 git -C "$PDFium_SOURCE_DIR" apply --check "$CUSTOM_PATCH"
