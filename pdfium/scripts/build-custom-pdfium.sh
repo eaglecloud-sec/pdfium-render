@@ -169,8 +169,9 @@ case "$TARGET_OS" in
       exit 1
     fi
     echo "verifying Windows exports with: $DUMPBIN"
-    if ! DUMPBIN_OUTPUT="$("$DUMPBIN" /nologo /exports \
-      staging/bin/pdfium.dll 2>&1)"; then
+    PDFIUM_DLL="$(cygpath -w "$BUILDER_ROOT/staging/bin/pdfium.dll")"
+    if ! DUMPBIN_OUTPUT="$(MSYS2_ARG_CONV_EXCL='*' \
+      "$DUMPBIN" /nologo /exports "$PDFIUM_DLL" 2>&1)"; then
       printf '%s\n' "$DUMPBIN_OUTPUT" >&2
       echo "dumpbin.exe failed to inspect staging/bin/pdfium.dll" >&2
       exit 1
