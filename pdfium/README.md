@@ -26,3 +26,6 @@ The `Build Eagle PDFium` workflow uses the same self-hosted runner classes as
 Pull requests build and test all configured targets. Pushing a tag named
 `pdfium-eagle-*` additionally publishes the generated `.tgz` archives and
 SHA-256 files to this repository's GitHub Release.
+
+The Linux x64 runner also cross-compiles the Linux arm64 artifact, matching the
+server release matrix without introducing a second Linux runner class.

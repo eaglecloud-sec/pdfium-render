@@ -16,7 +16,7 @@ PDFIUM_REVISION="99c42f5a6508f738383b5f3ab641959231360353"
 CUSTOM_PATCH="$WRAPPER_ROOT/pdfium/patches/eagle_catalog_custom_stream.patch"
 
 case "$TARGET_OS:$TARGET_CPU" in
-  linux:x64|mac:x64|mac:arm64|win:x86|win:x64) ;;
+  linux:x64|linux:arm64|mac:x64|mac:arm64|win:x86|win:x64) ;;
   *)
     echo "unsupported target: $TARGET_OS:$TARGET_CPU" >&2
     exit 2
