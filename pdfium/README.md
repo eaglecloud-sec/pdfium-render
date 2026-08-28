@@ -7,6 +7,7 @@ The build is pinned to:
 
 - `bblanchon/pdfium-binaries@a96196ffc32978819193fb82873bfb3afc089ef9`
 - `pdfium@99c42f5a6508f738383b5f3ab641959231360353` (`chromium/7543`)
+- `depot_tools@3d401c263f5b4ee534eacf967ac7234f7c4ee029`
 
 `eagle_catalog_custom_stream.patch` adds a bounded
 `FPDFCatalog_GetCustomStream()` API. It accepts unfiltered data or a single

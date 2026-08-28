@@ -13,6 +13,7 @@ BUILDER_ROOT="$(cd "$1" && pwd)"
 TARGET_OS="$2"
 TARGET_CPU="$3"
 PDFIUM_REVISION="99c42f5a6508f738383b5f3ab641959231360353"
+DEPOT_TOOLS_REVISION="3d401c263f5b4ee534eacf967ac7234f7c4ee029"
 CUSTOM_PATCH="$WRAPPER_ROOT/pdfium/patches/eagle_catalog_custom_stream.patch"
 
 case "$TARGET_OS:$TARGET_CPU" in
@@ -45,12 +46,18 @@ export GITHUB_PATH="$EAGLE_PATH_FILE"
 steps/00-environment.sh
 # shellcheck disable=SC1090
 source "$EAGLE_ENV_FILE"
+
+DEPOT_TOOLS_DIR="$BUILDER_ROOT/depot_tools"
+if [[ ! -d "$DEPOT_TOOLS_DIR/.git" ]]; then
+  git -c core.autocrlf=false clone --no-checkout \
+    https://chromium.googlesource.com/chromium/tools/depot_tools.git \
+    "$DEPOT_TOOLS_DIR"
+fi
+git -C "$DEPOT_TOOLS_DIR" config core.autocrlf false
+git -C "$DEPOT_TOOLS_DIR" fetch origin "$DEPOT_TOOLS_REVISION"
+git -C "$DEPOT_TOOLS_DIR" checkout --detach "$DEPOT_TOOLS_REVISION"
+
 if [[ "$TARGET_OS" == "mac" ]]; then
-  DEPOT_TOOLS_DIR="$BUILDER_ROOT/depot_tools"
-  if [[ ! -d "$DEPOT_TOOLS_DIR" ]]; then
-    git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git \
-      "$DEPOT_TOOLS_DIR"
-  fi
   echo "$DEPOT_TOOLS_DIR" >>"$EAGLE_PATH_FILE"
 
   XCODE_DEVELOPER_DIR="$(xcode-select -p)"
