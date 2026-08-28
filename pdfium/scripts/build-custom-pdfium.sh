@@ -151,8 +151,18 @@ case "$TARGET_OS" in
     nm -gU staging/lib/libpdfium.dylib | grep -F 'FPDFCatalog_GetCustomStream' >/dev/null
     ;;
   win)
-    LLVM_READOBJ="$PDFium_SOURCE_DIR/third_party/llvm-build/Release+Asserts/bin/llvm-readobj.exe"
-    "$LLVM_READOBJ" --coff-exports staging/bin/pdfium.dll | \
+    VS_TOOLS_ROOT="$(cygpath -u "${GYP_MSVS_OVERRIDE_PATH:?}")/VC/Tools/MSVC"
+    if [[ ! -d "$VS_TOOLS_ROOT" ]]; then
+      echo "Visual Studio tools directory not found: $VS_TOOLS_ROOT" >&2
+      exit 1
+    fi
+    DUMPBIN="$(find "$VS_TOOLS_ROOT" -type f \
+      -path '*/bin/Hostx64/x64/dumpbin.exe' -print | sort -V | tail -n 1)"
+    if [[ -z "$DUMPBIN" ]]; then
+      echo "dumpbin.exe not found under: $VS_TOOLS_ROOT" >&2
+      exit 1
+    fi
+    "$DUMPBIN" /nologo /exports staging/bin/pdfium.dll | \
       grep -F 'FPDFCatalog_GetCustomStream' >/dev/null
     ;;
 esac
