@@ -151,15 +151,21 @@ case "$TARGET_OS" in
     nm -gU staging/lib/libpdfium.dylib | grep -F 'FPDFCatalog_GetCustomStream' >/dev/null
     ;;
   win)
-    VS_TOOLS_ROOT="$(cygpath -u "${GYP_MSVS_OVERRIDE_PATH:?}")/VC/Tools/MSVC"
-    if [[ ! -d "$VS_TOOLS_ROOT" ]]; then
-      echo "Visual Studio tools directory not found: $VS_TOOLS_ROOT" >&2
-      exit 1
-    fi
-    DUMPBIN="$(find "$VS_TOOLS_ROOT" -type f \
-      -path '*/bin/Hostx64/x64/dumpbin.exe' -print | sort -V | tail -n 1)"
+    VS_TOOLS_ROOTS=(
+      "$(cygpath -u "${GYP_MSVS_OVERRIDE_PATH:?}")/VC/Tools/MSVC"
+      '/c/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC'
+      '/c/Program Files/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC'
+    )
+    DUMPBIN=""
+    for VS_TOOLS_ROOT in "${VS_TOOLS_ROOTS[@]}"; do
+      if [[ -d "$VS_TOOLS_ROOT" ]]; then
+        DUMPBIN="$(find "$VS_TOOLS_ROOT" -type f \
+          -path '*/bin/Hostx64/x64/dumpbin.exe' -print | sort -V | tail -n 1)"
+        [[ -n "$DUMPBIN" ]] && break
+      fi
+    done
     if [[ -z "$DUMPBIN" ]]; then
-      echo "dumpbin.exe not found under: $VS_TOOLS_ROOT" >&2
+      echo "dumpbin.exe not found in configured Visual Studio roots" >&2
       exit 1
     fi
     "$DUMPBIN" /nologo /exports staging/bin/pdfium.dll | \
