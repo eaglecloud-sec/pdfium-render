@@ -10140,6 +10140,19 @@ pub trait PdfiumLibraryBindings: Send + Sync + Drop {
     #[allow(non_snake_case)]
     unsafe fn FPDFCatalog_IsTagged(&self, document: FPDF_DOCUMENT) -> FPDF_BOOL;
 
+    #[cfg(feature = "pdfium_eagle_catalog")]
+    /// Retrieves a bounded custom stream from the document catalog.
+    #[allow(non_snake_case)]
+    unsafe fn FPDFCatalog_GetCustomStream(
+        &self,
+        document: FPDF_DOCUMENT,
+        key: FPDF_BYTESTRING,
+        max_size: c_ulong,
+        buffer: *mut c_void,
+        buflen: c_ulong,
+        out_len: *mut c_ulong,
+    ) -> c_int;
+
     #[cfg(any(
         feature = "pdfium_future",
         feature = "pdfium_7881",

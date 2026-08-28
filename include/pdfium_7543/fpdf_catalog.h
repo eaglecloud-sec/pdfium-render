@@ -35,6 +35,26 @@ FPDFCatalog_IsTagged(FPDF_DOCUMENT document);
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
 FPDFCatalog_SetLanguage(FPDF_DOCUMENT document, FPDF_BYTESTRING language);
 
+// Experimental API.
+// Status values returned by FPDFCatalog_GetCustomStream().
+#define FPDF_CATALOG_CUSTOM_STREAM_SUCCESS 0
+#define FPDF_CATALOG_CUSTOM_STREAM_MISSING 1
+#define FPDF_CATALOG_CUSTOM_STREAM_NOT_A_STREAM 2
+#define FPDF_CATALOG_CUSTOM_STREAM_TOO_LARGE 3
+#define FPDF_CATALOG_CUSTOM_STREAM_UNSUPPORTED_FILTER 4
+#define FPDF_CATALOG_CUSTOM_STREAM_DECODE_ERROR 5
+#define FPDF_CATALOG_CUSTOM_STREAM_INVALID_ARGUMENT 6
+
+// Retrieves a custom stream from the document catalog with a decoded-size
+// limit. See the Eagle PDFium 7543 release for supported filters.
+FPDF_EXPORT int FPDF_CALLCONV FPDFCatalog_GetCustomStream(
+    FPDF_DOCUMENT document,
+    FPDF_BYTESTRING key,
+    unsigned long max_size,
+    void* buffer,
+    unsigned long buflen,
+    unsigned long* out_len);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

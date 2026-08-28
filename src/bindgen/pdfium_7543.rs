@@ -4102,6 +4102,13 @@ pub const FWL_VKEYCODE_FWL_VKEY_OEM_Clear: FWL_VKEYCODE = 254;
 pub const FWL_VKEYCODE_FWL_VKEY_Unknown: FWL_VKEYCODE = 0;
 #[doc = " Virtual keycodes."]
 pub type FWL_VKEYCODE = ::std::os::raw::c_uint;
+pub const FPDF_CATALOG_CUSTOM_STREAM_SUCCESS: ::std::os::raw::c_int = 0;
+pub const FPDF_CATALOG_CUSTOM_STREAM_MISSING: ::std::os::raw::c_int = 1;
+pub const FPDF_CATALOG_CUSTOM_STREAM_NOT_A_STREAM: ::std::os::raw::c_int = 2;
+pub const FPDF_CATALOG_CUSTOM_STREAM_TOO_LARGE: ::std::os::raw::c_int = 3;
+pub const FPDF_CATALOG_CUSTOM_STREAM_UNSUPPORTED_FILTER: ::std::os::raw::c_int = 4;
+pub const FPDF_CATALOG_CUSTOM_STREAM_DECODE_ERROR: ::std::os::raw::c_int = 5;
+pub const FPDF_CATALOG_CUSTOM_STREAM_INVALID_ARGUMENT: ::std::os::raw::c_int = 6;
 unsafe extern "C" {
     #[doc = " Experimental API.\n\n Determine if |document| represents a tagged PDF.\n\n For the definition of tagged PDF, See (see 10.7 \"Tagged PDF\" in PDF\n Reference 1.7).\n\n   document - handle to a document.\n\n Returns |true| iff |document| is a tagged PDF."]
     pub fn FPDFCatalog_IsTagged(document: FPDF_DOCUMENT) -> FPDF_BOOL;
@@ -4110,6 +4117,16 @@ unsafe extern "C" {
     #[doc = " Experimental API.\n Sets the language of |document| to |language|.\n\n document - handle to a document.\n language - the language to set to.\n\n Returns TRUE on success."]
     pub fn FPDFCatalog_SetLanguage(document: FPDF_DOCUMENT, language: FPDF_BYTESTRING)
     -> FPDF_BOOL;
+}
+unsafe extern "C" {
+    pub fn FPDFCatalog_GetCustomStream(
+        document: FPDF_DOCUMENT,
+        key: FPDF_BYTESTRING,
+        max_size: ::std::os::raw::c_ulong,
+        buffer: *mut ::std::os::raw::c_void,
+        buflen: ::std::os::raw::c_ulong,
+        out_len: *mut ::std::os::raw::c_ulong,
+    ) -> ::std::os::raw::c_int;
 }
 #[doc = " Interface for checking whether sections of the file are available."]
 #[repr(C)]

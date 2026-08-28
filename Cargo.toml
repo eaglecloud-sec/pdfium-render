@@ -108,6 +108,7 @@ pdfium_future = [
 pdfium_7881 = []
 pdfium_7763 = []
 pdfium_7543 = []
+pdfium_eagle_catalog = ["pdfium_7543"]
 pdfium_7350 = []
 pdfium_7215 = []
 pdfium_7123 = []
