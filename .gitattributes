@@ -1,0 +1,2 @@
+pdfium/patches/*.patch text eol=lf
+pdfium/scripts/*.sh text eol=lf
