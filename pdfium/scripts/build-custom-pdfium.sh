@@ -15,6 +15,7 @@ TARGET_CPU="$3"
 PDFIUM_REVISION="99c42f5a6508f738383b5f3ab641959231360353"
 DEPOT_TOOLS_REVISION="3d401c263f5b4ee534eacf967ac7234f7c4ee029"
 CUSTOM_PATCH="$WRAPPER_ROOT/pdfium/patches/eagle_catalog_custom_stream.patch"
+DEPOT_TOOLS_WINDOWS_PATCH="$WRAPPER_ROOT/pdfium/patches/depot_tools_windows_gsutil_cleanup.patch"
 
 case "$TARGET_OS:$TARGET_CPU" in
   linux:x64|linux:arm64|mac:x64|mac:arm64|win:x86|win:x64) ;;
@@ -65,6 +66,8 @@ git -C "$DEPOT_TOOLS_DIR" fetch origin "$DEPOT_TOOLS_REVISION"
 git -C "$DEPOT_TOOLS_DIR" checkout --detach "$DEPOT_TOOLS_REVISION"
 
 if [[ "$TARGET_OS" == "win" ]]; then
+  git -C "$DEPOT_TOOLS_DIR" apply --check "$DEPOT_TOOLS_WINDOWS_PATCH"
+  git -C "$DEPOT_TOOLS_DIR" apply "$DEPOT_TOOLS_WINDOWS_PATCH"
   python --version
   python -c 'import sys; assert sys.version_info[:2] == (3, 11)'
   printf '%s\n' '#!/usr/bin/env bash' 'exec python "$@"' > \
