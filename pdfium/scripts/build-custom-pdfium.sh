@@ -62,6 +62,18 @@ git -C "$DEPOT_TOOLS_DIR" config core.autocrlf false
 git -C "$DEPOT_TOOLS_DIR" fetch origin "$DEPOT_TOOLS_REVISION"
 git -C "$DEPOT_TOOLS_DIR" checkout --detach "$DEPOT_TOOLS_REVISION"
 
+if [[ "$TARGET_OS" == "win" ]]; then
+  python --version
+  python -c 'import sys; assert sys.version_info[:2] == (3, 11)'
+  printf '%s\n' '#!/usr/bin/env bash' 'exec python "$@"' > \
+    "$DEPOT_TOOLS_DIR/python-bin/python3"
+  printf '%s\r\n' '@echo off' 'python %*' > \
+    "$DEPOT_TOOLS_DIR/python-bin/python3.bat"
+  chmod +x "$DEPOT_TOOLS_DIR/python-bin/python3"
+else
+  "$DEPOT_TOOLS_DIR/ensure_bootstrap"
+fi
+
 if [[ "$TARGET_OS" == "mac" ]]; then
   echo "$DEPOT_TOOLS_DIR" >>"$EAGLE_PATH_FILE"
 
