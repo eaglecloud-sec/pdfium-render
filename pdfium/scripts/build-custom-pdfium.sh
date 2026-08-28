@@ -101,11 +101,21 @@ gclient config --unmanaged "$PDFIUM_URL" "${CONFIG_ARGS[@]}"
 echo "target_os = [ '$TARGET_OS' ]" >>.gclient
 GCLIENT_SYNC_ARGS=(-r "$PDFIUM_REVISION" --no-history --shallow)
 if [[ "$TARGET_OS" == "win" ]]; then
-  # Multiple first-use gsutil processes race while unpacking the same ZIP on
-  # Windows self-hosted runners. Serial sync avoids the shared-file lock.
-  GCLIENT_SYNC_ARGS+=(--jobs 1)
+  # Keep dependency checkout serialized, and defer hooks until the depot_tools
+  # copy from PDFium's DEPS is patched before its first gsutil invocation.
+  GCLIENT_SYNC_ARGS+=(--jobs 1 --nohooks)
 fi
 gclient sync "${GCLIENT_SYNC_ARGS[@]}"
+
+if [[ "$TARGET_OS" == "win" ]]; then
+  PDFIUM_DEPOT_TOOLS_DIR="$PDFIUM_SOURCE_DIR/third_party/depot_tools"
+  git -C "$PDFIUM_DEPOT_TOOLS_DIR" apply --check \
+    "$DEPOT_TOOLS_WINDOWS_PATCH"
+  git -C "$PDFIUM_DEPOT_TOOLS_DIR" apply "$DEPOT_TOOLS_WINDOWS_PATCH"
+  pushd "$PDFIUM_SOURCE_DIR" >/dev/null
+  gclient runhooks
+  popd >/dev/null
+fi
 
 steps/03-patch.sh
 git -C "$PDFium_SOURCE_DIR" apply --check "$CUSTOM_PATCH"
