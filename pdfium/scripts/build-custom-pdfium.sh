@@ -42,6 +42,7 @@ if [[ "$TARGET_OS" == "win" ]]; then
   export VPYTHON_BYPASS="manually managed python not supported by chrome operations"
   export PYTHONUTF8=1
   export PYTHONIOENCODING=utf-8
+  export PATH="$WRAPPER_ROOT/pdfium/scripts:$PATH"
 fi
 
 EAGLE_ENV_FILE="$BUILDER_ROOT/.eagle-env-$TARGET_OS-$TARGET_CPU"
