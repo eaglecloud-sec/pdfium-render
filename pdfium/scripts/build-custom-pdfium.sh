@@ -168,8 +168,18 @@ case "$TARGET_OS" in
       echo "dumpbin.exe not found in configured Visual Studio roots" >&2
       exit 1
     fi
-    "$DUMPBIN" /nologo /exports staging/bin/pdfium.dll | \
-      grep -F 'FPDFCatalog_GetCustomStream' >/dev/null
+    echo "verifying Windows exports with: $DUMPBIN"
+    if ! DUMPBIN_OUTPUT="$("$DUMPBIN" /nologo /exports \
+      staging/bin/pdfium.dll 2>&1)"; then
+      printf '%s\n' "$DUMPBIN_OUTPUT" >&2
+      echo "dumpbin.exe failed to inspect staging/bin/pdfium.dll" >&2
+      exit 1
+    fi
+    if ! grep -F 'FPDFCatalog_GetCustomStream' \
+      <<<"$DUMPBIN_OUTPUT" >/dev/null; then
+      echo "FPDFCatalog_GetCustomStream is missing from pdfium.dll exports" >&2
+      exit 1
+    fi
     ;;
 esac
 
