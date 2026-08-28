@@ -35,6 +35,11 @@ export PDFium_VERSION="7543.0.0.1"
 export PDFium_SOURCE_DIR="$BUILDER_ROOT/pdfium"
 export PDFium_BUILD_DIR="$BUILDER_ROOT/pdfium/out"
 export DEPOT_TOOLS_WIN_TOOLCHAIN=0
+export DEPOT_TOOLS_UPDATE=0
+
+if [[ "$TARGET_OS" == "win" ]]; then
+  export VPYTHON_BYPASS="manually managed python not supported by chrome operations"
+fi
 
 EAGLE_ENV_FILE="$BUILDER_ROOT/.eagle-env-$TARGET_OS-$TARGET_CPU"
 EAGLE_PATH_FILE="$BUILDER_ROOT/.eagle-path-$TARGET_OS-$TARGET_CPU"
@@ -81,7 +86,15 @@ gclient sync -r "$PDFIUM_REVISION" --no-history --shallow
 steps/03-patch.sh
 git -C "$PDFium_SOURCE_DIR" apply --check "$CUSTOM_PATCH"
 git -C "$PDFium_SOURCE_DIR" apply "$CUSTOM_PATCH"
-steps/04-install-extras.sh
+if [[ "$TARGET_OS" == "linux" ]]; then
+  pushd "$PDFIUM_SOURCE_DIR" >/dev/null
+  build/install-build-deps.sh --no-prompt
+  gclient runhooks
+  build/linux/sysroot_scripts/install-sysroot.py "--arch=$TARGET_CPU"
+  popd >/dev/null
+else
+  steps/04-install-extras.sh
+fi
 steps/05-configure.sh
 steps/06-build.sh
 
