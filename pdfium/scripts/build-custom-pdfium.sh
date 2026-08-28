@@ -87,7 +87,7 @@ steps/03-patch.sh
 git -C "$PDFium_SOURCE_DIR" apply --check "$CUSTOM_PATCH"
 git -C "$PDFium_SOURCE_DIR" apply "$CUSTOM_PATCH"
 if [[ "$TARGET_OS" == "linux" ]]; then
-  pushd "$PDFIUM_SOURCE_DIR" >/dev/null
+  pushd "$PDFium_SOURCE_DIR" >/dev/null
   build/install-build-deps.sh --no-prompt
   gclient runhooks
   build/linux/sysroot_scripts/install-sysroot.py "--arch=$TARGET_CPU"
