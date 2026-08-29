@@ -5949,6 +5949,23 @@ impl<T: PdfiumLibraryBindings> PdfiumLibraryBindings for ThreadSafePdfiumBinding
         self.bindings.FPDFCatalog_IsTagged(document)
     }
 
+    #[cfg(feature = "pdfium_eagle_catalog")]
+    #[inline]
+    #[allow(non_snake_case)]
+    unsafe fn FPDFCatalog_GetCustomStream(
+        &self,
+        document: FPDF_DOCUMENT,
+        key: FPDF_BYTESTRING,
+        max_size: c_ulong,
+        buffer: *mut c_void,
+        buflen: c_ulong,
+        out_len: *mut c_ulong,
+    ) -> c_int {
+        let _lock = PdfiumThreadMarshall::lock();
+        self.bindings
+            .FPDFCatalog_GetCustomStream(document, key, max_size, buffer, buflen, out_len)
+    }
+
     #[cfg(any(
         feature = "pdfium_future",
         feature = "pdfium_7881",

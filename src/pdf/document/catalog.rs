@@ -104,11 +104,13 @@ impl<'a> PdfCatalog<'a> {
             FPDF_CATALOG_CUSTOM_STREAM_TOO_LARGE, FPDF_CATALOG_CUSTOM_STREAM_UNSUPPORTED_FILTER,
         };
 
-        let Ok(key) = CString::new(key) else {
-            return PdfCatalogCustomStreamResult::InvalidArgument;
+        let key = match CString::new(key) {
+            Ok(key) => key,
+            Err(_) => return PdfCatalogCustomStreamResult::InvalidArgument,
         };
-        let Some(buffer_size) = custom_stream_buffer_size(max_size) else {
-            return PdfCatalogCustomStreamResult::InvalidArgument;
+        let buffer_size = match custom_stream_buffer_size(max_size) {
+            Some(buffer_size) => buffer_size,
+            None => return PdfCatalogCustomStreamResult::InvalidArgument,
         };
 
         let mut buffer = Vec::new();
@@ -130,8 +132,9 @@ impl<'a> PdfCatalog<'a> {
 
         match status {
             FPDF_CATALOG_CUSTOM_STREAM_SUCCESS => {
-                let Ok(out_len) = usize::try_from(out_len) else {
-                    return PdfCatalogCustomStreamResult::DecodeError;
+                let out_len = match usize::try_from(out_len) {
+                    Ok(out_len) => out_len,
+                    Err(_) => return PdfCatalogCustomStreamResult::DecodeError,
                 };
                 if out_len > buffer.len() {
                     return PdfCatalogCustomStreamResult::DecodeError;
