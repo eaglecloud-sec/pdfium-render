@@ -4,8 +4,34 @@
 use crate::bindgen::FPDF_DOCUMENT;
 use crate::error::PdfiumError;
 use crate::pdfium::PdfiumLibraryBindingsAccessor;
-use crate::utils::{mem::create_byte_buffer, utf16le::get_string_from_pdfium_utf16le_bytes};
 use std::marker::PhantomData;
+
+#[cfg(any(
+    feature = "pdfium_future",
+    feature = "pdfium_7881",
+    feature = "pdfium_7763"
+))]
+use crate::utils::{mem::create_byte_buffer, utf16le::get_string_from_pdfium_utf16le_bytes};
+
+#[cfg(feature = "pdfium_eagle_catalog")]
+use std::ffi::CString;
+
+#[cfg(feature = "pdfium_eagle_catalog")]
+use std::os::raw::c_ulong;
+
+/// Maximum decoded size accepted by the Eagle PDFium custom catalog stream API.
+#[cfg(feature = "pdfium_eagle_catalog")]
+pub const PDF_CATALOG_CUSTOM_STREAM_MAX_SIZE: usize =
+    crate::bindgen::FPDF_CATALOG_CUSTOM_STREAM_MAX_SIZE as usize;
+
+#[cfg(feature = "pdfium_eagle_catalog")]
+fn custom_stream_buffer_size(max_size: usize) -> Option<c_ulong> {
+    if max_size == 0 || max_size > PDF_CATALOG_CUSTOM_STREAM_MAX_SIZE {
+        return None;
+    }
+
+    c_ulong::try_from(max_size).ok()
+}
 
 #[cfg(any(
     feature = "pdfium_future",
@@ -21,6 +47,19 @@ use crate::pdf::document::PdfDocument;
 pub struct PdfCatalog<'a> {
     document_handle: FPDF_DOCUMENT,
     lifetime: PhantomData<&'a FPDF_DOCUMENT>,
+}
+
+/// Result of reading a bounded custom stream from a PDF document catalog.
+#[cfg(feature = "pdfium_eagle_catalog")]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PdfCatalogCustomStreamResult {
+    Data(Vec<u8>),
+    Missing,
+    NotAStream,
+    TooLarge,
+    UnsupportedFilter,
+    DecodeError,
+    InvalidArgument,
 }
 
 impl<'a> PdfCatalog<'a> {
@@ -52,6 +91,66 @@ impl<'a> PdfCatalog<'a> {
     pub fn is_tagged(&self) -> bool {
         self.bindings()
             .is_true(unsafe { self.bindings().FPDFCatalog_IsTagged(self.document_handle()) })
+    }
+
+    /// Reads a custom catalog stream without decoding more than `max_size`
+    /// bytes. This API requires an Eagle PDFium build exposing
+    /// `FPDFCatalog_GetCustomStream()`.
+    #[cfg(feature = "pdfium_eagle_catalog")]
+    pub fn custom_stream(&self, key: &str, max_size: usize) -> PdfCatalogCustomStreamResult {
+        use crate::bindgen::{
+            FPDF_CATALOG_CUSTOM_STREAM_DECODE_ERROR, FPDF_CATALOG_CUSTOM_STREAM_MISSING,
+            FPDF_CATALOG_CUSTOM_STREAM_NOT_A_STREAM, FPDF_CATALOG_CUSTOM_STREAM_SUCCESS,
+            FPDF_CATALOG_CUSTOM_STREAM_TOO_LARGE, FPDF_CATALOG_CUSTOM_STREAM_UNSUPPORTED_FILTER,
+        };
+
+        let key = match CString::new(key) {
+            Ok(key) => key,
+            Err(_) => return PdfCatalogCustomStreamResult::InvalidArgument,
+        };
+        let buffer_size = match custom_stream_buffer_size(max_size) {
+            Some(buffer_size) => buffer_size,
+            None => return PdfCatalogCustomStreamResult::InvalidArgument,
+        };
+
+        let mut buffer = Vec::new();
+        if buffer.try_reserve_exact(max_size).is_err() {
+            return PdfCatalogCustomStreamResult::InvalidArgument;
+        }
+        buffer.resize(max_size, 0);
+        let mut out_len: c_ulong = 0;
+        let status = unsafe {
+            self.bindings().FPDFCatalog_GetCustomStream(
+                self.document_handle(),
+                key.as_ptr(),
+                buffer_size,
+                buffer.as_mut_ptr().cast(),
+                buffer_size,
+                &mut out_len,
+            )
+        };
+
+        match status {
+            FPDF_CATALOG_CUSTOM_STREAM_SUCCESS => {
+                let out_len = match usize::try_from(out_len) {
+                    Ok(out_len) => out_len,
+                    Err(_) => return PdfCatalogCustomStreamResult::DecodeError,
+                };
+                if out_len > buffer.len() {
+                    return PdfCatalogCustomStreamResult::DecodeError;
+                }
+                buffer.truncate(out_len);
+                PdfCatalogCustomStreamResult::Data(buffer)
+            }
+            FPDF_CATALOG_CUSTOM_STREAM_MISSING => PdfCatalogCustomStreamResult::Missing,
+            FPDF_CATALOG_CUSTOM_STREAM_NOT_A_STREAM => PdfCatalogCustomStreamResult::NotAStream,
+            FPDF_CATALOG_CUSTOM_STREAM_TOO_LARGE => PdfCatalogCustomStreamResult::TooLarge,
+            FPDF_CATALOG_CUSTOM_STREAM_UNSUPPORTED_FILTER => {
+                PdfCatalogCustomStreamResult::UnsupportedFilter
+            }
+            FPDF_CATALOG_CUSTOM_STREAM_DECODE_ERROR => PdfCatalogCustomStreamResult::DecodeError,
+            _ => PdfCatalogCustomStreamResult::InvalidArgument,
+        }
     }
 
     #[cfg(any(
@@ -134,3 +233,20 @@ unsafe impl<'a> Send for PdfCatalog<'a> {}
 
 #[cfg(feature = "thread_safe")]
 unsafe impl<'a> Sync for PdfCatalog<'a> {}
+
+#[cfg(all(test, feature = "pdfium_eagle_catalog"))]
+mod tests {
+    use super::{custom_stream_buffer_size, PDF_CATALOG_CUSTOM_STREAM_MAX_SIZE};
+
+    #[test]
+    fn custom_stream_size_is_validated_before_allocation() {
+        assert_eq!(custom_stream_buffer_size(0), None);
+        assert!(custom_stream_buffer_size(1).is_some());
+        assert!(custom_stream_buffer_size(PDF_CATALOG_CUSTOM_STREAM_MAX_SIZE).is_some());
+        assert_eq!(
+            custom_stream_buffer_size(PDF_CATALOG_CUSTOM_STREAM_MAX_SIZE + 1),
+            None
+        );
+        assert_eq!(custom_stream_buffer_size(usize::MAX), None);
+    }
+}

@@ -1,0 +1,328 @@
+diff --git a/core/fxcodec/flate/flatemodule.cpp b/core/fxcodec/flate/flatemodule.cpp
+index 3bb25f7..0402d69 100644
+--- a/core/fxcodec/flate/flatemodule.cpp
++++ b/core/fxcodec/flate/flatemodule.cpp
+@@ -843,6 +843,43 @@ DataAndBytesConsumed FlateModule::FlateOrLZWDecode(
+   }
+ }
+ 
++// static
++BoundedFlateDecodeResult FlateModule::FlateDecodeWithSizeLimit(
++    pdfium::span<const uint8_t> src_span,
++    uint32_t max_output_size) {
++  BoundedFlateDecodeResult result;
++  if (max_output_size == std::numeric_limits<uint32_t>::max()) {
++    return result;
++  }
++
++  std::unique_ptr<z_stream, FlateDeleter> context(FlateInit());
++  if (!context) {
++    return result;
++  }
++
++  FlateInput(context.get(), src_span);
++  result.data.resize(static_cast<size_t>(max_output_size) + 1u);
++  context->next_out = result.data.data();
++  context->avail_out = pdfium::checked_cast<uint32_t>(result.data.size());
++
++  const int inflate_result = inflate(context.get(), Z_FINISH);
++  const uint32_t decoded_size =
++      pdfium::checked_cast<uint32_t>(context->total_out);
++  if (decoded_size > max_output_size || context->avail_out == 0) {
++    result.data.clear();
++    result.output_too_large = true;
++    return result;
++  }
++  if (inflate_result != Z_STREAM_END) {
++    result.data.clear();
++    return result;
++  }
++
++  result.data.resize(decoded_size);
++  result.success = true;
++  return result;
++}
++
+ // static
+ DataVector<uint8_t> FlateModule::Encode(pdfium::span<const uint8_t> src_span) {
+   FX_SAFE_SIZE_T safe_dest_size = src_span.size();
+diff --git a/core/fxcodec/flate/flatemodule.h b/core/fxcodec/flate/flatemodule.h
+index cf56ed5..c4a734a 100644
+--- a/core/fxcodec/flate/flatemodule.h
++++ b/core/fxcodec/flate/flatemodule.h
+@@ -19,6 +19,12 @@ namespace fxcodec {
+ 
+ class ScanlineDecoder;
+ 
++struct BoundedFlateDecodeResult {
++  DataVector<uint8_t> data;
++  bool success = false;
++  bool output_too_large = false;
++};
++
+ class FlateModule {
+  public:
+   static std::unique_ptr<ScanlineDecoder> CreateDecoder(
+@@ -42,6 +48,13 @@ class FlateModule {
+       int Columns,
+       uint32_t estimated_size);
+ 
++  // Decodes Flate data while limiting the output allocation to
++  // `max_output_size + 1` bytes. The extra byte is used only to distinguish an
++  // exact-size result from an oversized result.
++  static BoundedFlateDecodeResult FlateDecodeWithSizeLimit(
++      pdfium::span<const uint8_t> src_span,
++      uint32_t max_output_size);
++
+   static DataVector<uint8_t> Encode(pdfium::span<const uint8_t> src_span);
+ 
+   FlateModule() = delete;
+diff --git a/core/fxcodec/flate/flatemodule_unittest.cpp b/core/fxcodec/flate/flatemodule_unittest.cpp
+index 480b8ba..70dcd0f 100644
+--- a/core/fxcodec/flate/flatemodule_unittest.cpp
++++ b/core/fxcodec/flate/flatemodule_unittest.cpp
+@@ -45,6 +45,31 @@ TEST(FlateModule, Decode) {
+   }
+ }
+ 
++TEST(FlateModule, DecodeWithSizeLimit) {
++  static constexpr uint8_t kCompressed[] = {
++      0x78, 0x9c, 0x33, 0x34, 0x32, 0x06, 0x00, 0x01, 0x2d, 0x00, 0x97};
++
++  fxcodec::BoundedFlateDecodeResult exact =
++      FlateModule::FlateDecodeWithSizeLimit(pdfium::span(kCompressed), 3);
++  EXPECT_TRUE(exact.success);
++  EXPECT_FALSE(exact.output_too_large);
++  static constexpr uint8_t kExpected[] = {'1', '2', '3'};
++  EXPECT_THAT(exact.data, ElementsAreArray(kExpected));
++
++  fxcodec::BoundedFlateDecodeResult too_large =
++      FlateModule::FlateDecodeWithSizeLimit(pdfium::span(kCompressed), 2);
++  EXPECT_FALSE(too_large.success);
++  EXPECT_TRUE(too_large.output_too_large);
++  EXPECT_TRUE(too_large.data.empty());
++
++  static constexpr uint8_t kInvalid[] = {0x01, 0x02, 0x03};
++  fxcodec::BoundedFlateDecodeResult invalid =
++      FlateModule::FlateDecodeWithSizeLimit(pdfium::span(kInvalid), 16);
++  EXPECT_FALSE(invalid.success);
++  EXPECT_FALSE(invalid.output_too_large);
++  EXPECT_TRUE(invalid.data.empty());
++}
++
+ TEST(FlateModule, Encode) {
+   static const pdfium::StrFuncTestData flate_encode_cases[] = {
+       STR_IN_OUT_CASE("", "\x78\x9c\x03\x00\x00\x00\x00\x01"),
+diff --git a/fpdfsdk/fpdf_catalog.cpp b/fpdfsdk/fpdf_catalog.cpp
+index abe7150..727e8e6 100644
+--- a/fpdfsdk/fpdf_catalog.cpp
++++ b/fpdfsdk/fpdf_catalog.cpp
+@@ -4,9 +4,14 @@
+ 
+ #include "public/fpdf_catalog.h"
+ 
++#include <cstring>
++
+ #include "core/fpdfapi/parser/cpdf_dictionary.h"
+ #include "core/fpdfapi/parser/cpdf_document.h"
++#include "core/fpdfapi/parser/cpdf_stream.h"
++#include "core/fpdfapi/parser/cpdf_stream_acc.h"
+ #include "core/fpdfapi/parser/cpdf_string.h"
++#include "core/fxcodec/flate/flatemodule.h"
+ #include "core/fxcrt/retain_ptr.h"
+ #include "fpdfsdk/cpdfsdk_helpers.h"
+ 
+@@ -45,3 +50,79 @@ FPDFCatalog_SetLanguage(FPDF_DOCUMENT document, FPDF_BYTESTRING language) {
+   catalog->SetNewFor<CPDF_String>("Lang", language);
+   return true;
+ }
++
++FPDF_EXPORT int FPDF_CALLCONV FPDFCatalog_GetCustomStream(
++    FPDF_DOCUMENT document,
++    FPDF_BYTESTRING key,
++    unsigned long max_size,
++    void* buffer,
++    unsigned long buflen,
++    unsigned long* out_len) {
++  if (out_len) {
++    *out_len = 0;
++  }
++  if (!document || !key || !key[0] || !buffer || !out_len || max_size == 0 ||
++      max_size > FPDF_CATALOG_CUSTOM_STREAM_MAX_SIZE || buflen < max_size) {
++    return FPDF_CATALOG_CUSTOM_STREAM_INVALID_ARGUMENT;
++  }
++
++  CPDF_Document* doc = CPDFDocumentFromFPDFDocument(document);
++  const CPDF_Dictionary* catalog = doc ? doc->GetRoot() : nullptr;
++  if (!catalog) {
++    return FPDF_CATALOG_CUSTOM_STREAM_DECODE_ERROR;
++  }
++  if (!catalog->KeyExist(key)) {
++    return FPDF_CATALOG_CUSTOM_STREAM_MISSING;
++  }
++
++  RetainPtr<const CPDF_Stream> stream = catalog->GetStreamFor(key);
++  if (!stream) {
++    return FPDF_CATALOG_CUSTOM_STREAM_NOT_A_STREAM;
++  }
++
++  const uint32_t size_limit = static_cast<uint32_t>(max_size);
++  const size_t raw_size = stream->GetRawSize();
++  if (raw_size > size_limit) {
++    return FPDF_CATALOG_CUSTOM_STREAM_TOO_LARGE;
++  }
++
++  auto copy_result = [&](pdfium::span<const uint8_t> data) {
++    if (data.size() > size_limit) {
++      return FPDF_CATALOG_CUSTOM_STREAM_TOO_LARGE;
++    }
++    if (!data.empty()) {
++      std::memcpy(buffer, data.data(), data.size());
++    }
++    *out_len = static_cast<unsigned long>(data.size());
++    return FPDF_CATALOG_CUSTOM_STREAM_SUCCESS;
++  };
++
++  auto raw_access = pdfium::MakeRetain<CPDF_StreamAcc>(stream);
++  raw_access->LoadAllDataRaw();
++  if (raw_access->GetSize() != raw_size) {
++    return FPDF_CATALOG_CUSTOM_STREAM_DECODE_ERROR;
++  }
++
++  RetainPtr<const CPDF_Dictionary> stream_dict = stream->GetDict();
++  if (!stream->HasFilter()) {
++    return copy_result(raw_access->GetSpan());
++  }
++
++  const ByteString filter = stream_dict->GetNameFor("Filter");
++  if (filter != "FlateDecode" && filter != "Fl") {
++    return FPDF_CATALOG_CUSTOM_STREAM_UNSUPPORTED_FILTER;
++  }
++  if (stream_dict->KeyExist("DecodeParms")) {
++    return FPDF_CATALOG_CUSTOM_STREAM_UNSUPPORTED_FILTER;
++  }
++
++  fxcodec::BoundedFlateDecodeResult decoded =
++      FlateModule::FlateDecodeWithSizeLimit(raw_access->GetSpan(), size_limit);
++  if (decoded.output_too_large) {
++    return FPDF_CATALOG_CUSTOM_STREAM_TOO_LARGE;
++  }
++  if (!decoded.success) {
++    return FPDF_CATALOG_CUSTOM_STREAM_DECODE_ERROR;
++  }
++  return copy_result(decoded.data);
++}
+diff --git a/fpdfsdk/fpdf_catalog_unittest.cpp b/fpdfsdk/fpdf_catalog_unittest.cpp
+index aea0179..650b2ed 100644
+--- a/fpdfsdk/fpdf_catalog_unittest.cpp
++++ b/fpdfsdk/fpdf_catalog_unittest.cpp
+@@ -4,6 +4,7 @@
+ 
+ #include "public/fpdf_catalog.h"
+ 
++#include <array>
+ #include <memory>
+ 
+ #include "core/fpdfapi/page/test_with_page_module.h"
+@@ -11,6 +12,8 @@
+ #include "core/fpdfapi/parser/cpdf_document.h"
+ #include "core/fpdfapi/parser/cpdf_number.h"
+ #include "core/fpdfapi/parser/cpdf_parser.h"
++#include "core/fpdfapi/parser/cpdf_reference.h"
++#include "core/fpdfapi/parser/cpdf_stream.h"
+ #include "core/fpdfapi/parser/cpdf_string.h"
+ #include "core/fpdfapi/parser/cpdf_test_document.h"
+ #include "fpdfsdk/cpdfsdk_helpers.h"
+@@ -67,3 +70,47 @@ TEST_F(PDFCatalogTest, IsTagged) {
+   markInfoDict->SetNewFor<CPDF_Number>("Marked", 1);
+   EXPECT_TRUE(FPDFCatalog_IsTagged(doc_.get()));
+ }
++
++TEST_F(PDFCatalogTest, GetCustomStream) {
++  constexpr char kKey[] = "CustomData";
++  constexpr std::array<uint8_t, 4> kData = {'t', 'e', 's', 't'};
++  std::array<uint8_t, 8> buffer = {};
++  unsigned long out_len = 99;
++
++  EXPECT_EQ(FPDF_CATALOG_CUSTOM_STREAM_INVALID_ARGUMENT,
++            FPDFCatalog_GetCustomStream(nullptr, kKey, buffer.size(),
++                                        buffer.data(), buffer.size(),
++                                        &out_len));
++  EXPECT_EQ(0u, out_len);
++  EXPECT_EQ(
++      FPDF_CATALOG_CUSTOM_STREAM_INVALID_ARGUMENT,
++      FPDFCatalog_GetCustomStream(
++          doc_.get(), kKey, FPDF_CATALOG_CUSTOM_STREAM_MAX_SIZE + 1,
++          buffer.data(), FPDF_CATALOG_CUSTOM_STREAM_MAX_SIZE + 1, &out_len));
++  EXPECT_EQ(0u, out_len);
++
++  CPDF_TestDocument* test_doc =
++      static_cast<CPDF_TestDocument*>(CPDFDocumentFromFPDFDocument(doc_.get()));
++  test_doc->SetRoot(root_obj_);
++  EXPECT_EQ(FPDF_CATALOG_CUSTOM_STREAM_MISSING,
++            FPDFCatalog_GetCustomStream(doc_.get(), kKey, buffer.size(),
++                                        buffer.data(), buffer.size(),
++                                        &out_len));
++
++  root_obj_->SetNewFor<CPDF_String>(kKey, "not a stream");
++  EXPECT_EQ(FPDF_CATALOG_CUSTOM_STREAM_NOT_A_STREAM,
++            FPDFCatalog_GetCustomStream(doc_.get(), kKey, buffer.size(),
++                                        buffer.data(), buffer.size(),
++                                        &out_len));
++
++  auto stream = test_doc->NewIndirect<CPDF_Stream>(pdfium::span(kData));
++  root_obj_->SetNewFor<CPDF_Reference>(kKey, test_doc, stream->GetObjNum());
++  EXPECT_EQ(FPDF_CATALOG_CUSTOM_STREAM_SUCCESS,
++            FPDFCatalog_GetCustomStream(doc_.get(), kKey, buffer.size(),
++                                        buffer.data(), buffer.size(),
++                                        &out_len));
++  EXPECT_EQ(kData.size(), out_len);
++  const std::array<uint8_t, 4> actual = {buffer[0], buffer[1], buffer[2],
++                                         buffer[3]};
++  EXPECT_EQ(kData, actual);
++}
+diff --git a/public/fpdf_catalog.h b/public/fpdf_catalog.h
+index 033cca5..7a6bf2b 100644
+--- a/public/fpdf_catalog.h
++++ b/public/fpdf_catalog.h
+@@ -35,6 +35,40 @@ FPDFCatalog_IsTagged(FPDF_DOCUMENT document);
+ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+ FPDFCatalog_SetLanguage(FPDF_DOCUMENT document, FPDF_BYTESTRING language);
+ 
++// Experimental API.
++// Status values returned by FPDFCatalog_GetCustomStream().
++#define FPDF_CATALOG_CUSTOM_STREAM_SUCCESS 0
++#define FPDF_CATALOG_CUSTOM_STREAM_MISSING 1
++#define FPDF_CATALOG_CUSTOM_STREAM_NOT_A_STREAM 2
++#define FPDF_CATALOG_CUSTOM_STREAM_TOO_LARGE 3
++#define FPDF_CATALOG_CUSTOM_STREAM_UNSUPPORTED_FILTER 4
++#define FPDF_CATALOG_CUSTOM_STREAM_DECODE_ERROR 5
++#define FPDF_CATALOG_CUSTOM_STREAM_INVALID_ARGUMENT 6
++#define FPDF_CATALOG_CUSTOM_STREAM_MAX_SIZE 1048576UL
++
++// Retrieves a custom stream from the document catalog.
++//
++// Only unfiltered streams and streams using a single FlateDecode filter without
++// DecodeParms are accepted. Decoding is stopped once |max_size| bytes have been
++// produced, so callers can safely inspect untrusted catalog streams.
++//
++//   document - handle to a document.
++//   key      - null-terminated catalog key.
++//   max_size - maximum permitted decoded stream size, up to
++//              FPDF_CATALOG_CUSTOM_STREAM_MAX_SIZE bytes.
++//   buffer   - caller-owned output buffer of at least |max_size| bytes.
++//   buflen   - size of |buffer| in bytes.
++//   out_len  - receives the decoded stream size on success, otherwise zero.
++//
++// Returns one of the FPDF_CATALOG_CUSTOM_STREAM_* status values above.
++FPDF_EXPORT int FPDF_CALLCONV FPDFCatalog_GetCustomStream(
++    FPDF_DOCUMENT document,
++    FPDF_BYTESTRING key,
++    unsigned long max_size,
++    void* buffer,
++    unsigned long buflen,
++    unsigned long* out_len);
++
+ #ifdef __cplusplus
+ }  // extern "C"
+ #endif  // __cplusplus

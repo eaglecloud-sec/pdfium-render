@@ -2557,6 +2557,15 @@ pub(crate) struct DynamicPdfiumBindings {
         buflen: c_ulong,
     ) -> c_ulong,
     extern_FPDFCatalog_IsTagged: unsafe extern "C" fn(document: FPDF_DOCUMENT) -> FPDF_BOOL,
+    #[cfg(feature = "pdfium_eagle_catalog")]
+    extern_FPDFCatalog_GetCustomStream: unsafe extern "C" fn(
+        document: FPDF_DOCUMENT,
+        key: FPDF_BYTESTRING,
+        max_size: c_ulong,
+        buffer: *mut c_void,
+        buflen: c_ulong,
+        out_len: *mut c_ulong,
+    ) -> c_int,
     #[cfg(any(
         feature = "pdfium_future",
         feature = "pdfium_7881",
@@ -3946,6 +3955,11 @@ impl DynamicPdfiumBindings {
             ))]
             extern_FPDFAttachment_GetSubtype: *(Self::bind(&library, "FPDFAttachment_GetSubtype")?),
             extern_FPDFCatalog_IsTagged: *(Self::bind(&library, "FPDFCatalog_IsTagged")?),
+            #[cfg(feature = "pdfium_eagle_catalog")]
+            extern_FPDFCatalog_GetCustomStream: *(Self::bind(
+                &library,
+                "FPDFCatalog_GetCustomStream",
+            )?),
             #[cfg(any(
                 feature = "pdfium_future",
                 feature = "pdfium_7881",
@@ -9468,6 +9482,21 @@ impl PdfiumLibraryBindings for DynamicPdfiumBindings {
         (self.extern_FPDFCatalog_IsTagged)(document)
     }
 
+    #[cfg(feature = "pdfium_eagle_catalog")]
+    #[inline]
+    #[allow(non_snake_case)]
+    unsafe fn FPDFCatalog_GetCustomStream(
+        &self,
+        document: FPDF_DOCUMENT,
+        key: FPDF_BYTESTRING,
+        max_size: c_ulong,
+        buffer: *mut c_void,
+        buflen: c_ulong,
+        out_len: *mut c_ulong,
+    ) -> c_int {
+        (self.extern_FPDFCatalog_GetCustomStream)(document, key, max_size, buffer, buflen, out_len)
+    }
+
     #[cfg(any(
         feature = "pdfium_future",
         feature = "pdfium_7881",
@@ -9516,13 +9545,5 @@ impl PdfiumLibraryBindings for DynamicPdfiumBindings {
         language: FPDF_BYTESTRING,
     ) -> FPDF_BOOL {
         (self.extern_FPDFCatalog_SetLanguage)(document, language)
-    }
-}
-
-impl Drop for DynamicPdfiumBindings {
-    fn drop(&mut self) {
-        unsafe {
-            self.FPDF_DestroyLibrary();
-        }
     }
 }
